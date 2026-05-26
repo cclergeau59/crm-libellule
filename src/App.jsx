@@ -9,7 +9,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, writeBatch } from 'firebase/firestore';
 
-// --- CONFIGURATION FIREBASE DU PROJET (CYRIL CLERGEAU) ---
+// --- CONFIGURATION FIREBASE DU PROJET ---
 const firebaseConfig = {
   apiKey: "AIzaSyArBrqqePsBEPY1udEW5j2YQLd3taQi93U",
   authDomain: "libellule-crm.firebaseapp.com",
@@ -30,7 +30,7 @@ try {
   console.error("Firebase initialization failed:", error);
 }
 
-// --- ICÔNE LINKEDIN SVGAUTONOME (Résout le problème d'importation lucide-react) ---
+// --- ICÔNE LINKEDIN SVG AUTONOME ---
 const Linkedin = ({ className = "w-4 h-4" }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
@@ -101,12 +101,12 @@ export default function App() {
   const [newMission, setNewMission] = useState({ company: '', type: '', value: '', status: 'contact', contactName: '' });
 
   // États pour les graphiques interactifs
-  const [revenueGoal, setRevenueGoal] = useState(40000); // Objectif mensuel ajustable par défaut
-  const [distributionMetric, setDistributionMetric] = useState('region'); // 'region' ou 'needType'
+  const [revenueGoal, setRevenueGoal] = useState(40000); 
+  const [distributionMetric, setDistributionMetric] = useState('region'); 
 
   // États LinkedIn
   const [isImportLinkedInOpen, setIsImportLinkedInOpen] = useState(false);
-  const [linkedInStep, setLinkedInStep] = useState(1); // 1: upload/guide, 2: preview, 3: importing
+  const [linkedInStep, setLinkedInStep] = useState(1); 
   const [parsedLinkedInContacts, setParsedLinkedInContacts] = useState([]);
   const [csvFileName, setCsvFileName] = useState('');
 
@@ -129,7 +129,7 @@ export default function App() {
     }
   }, []);
 
-  // --- LOGIQUE AUTHENTIFICATION (CORRIGÉE AVEC REPLI ROBUSTE) ---
+  // --- LOGIQUE AUTHENTIFICATION (REPLI ROBUSTE) ---
   useEffect(() => {
     if (!auth) {
       setContacts(initialContacts);
@@ -332,7 +332,7 @@ export default function App() {
     }
   };
 
-  // --- MODULE D'IMPORTATION DE CONTACTS LINKEDIN ---
+  // --- MODULE D'IMPORTATION DE CONTACTS LINKEDIN CORRIGÉ ET ROBUSTE ---
   const handleLinkedInFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -353,10 +353,40 @@ export default function App() {
   };
 
   const parseLinkedInCSV = (text) => {
-    const lines = text.split(/\r?\n/);
+    // 1. Suppression du Byte Order Mark (BOM) invisible d'Excel
+    const cleanText = text.replace(/^\uFEFF/, '');
+    const lines = cleanText.split(/\r?\n/);
     if (lines.length < 2) return [];
 
-    const headers = lines[0].split(/,|;/).map(h => h.replace(/"/g, '').trim().toLowerCase());
+    // 2. Détection dynamique du séparateur (virgule ou point-virgule)
+    const firstLine = lines[0];
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const semiCount = (firstLine.match(/;/g) || []).length;
+    const separator = semiCount > commaCount ? ';' : ',';
+
+    // 3. Découpeur de ligne CSV robuste qui gère les guillemets et préserve les espaces
+    const splitCSVLine = (line, sep) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === sep && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      // On retire les guillemets externes
+      return result.map(v => v.replace(/^"|"$/g, '').trim());
+    };
+
+    // Lecture des en-têtes
+    const headers = splitCSVLine(lines[0], separator).map(h => h.toLowerCase());
     
     const firstNameIdx = headers.findIndex(h => h.includes('first name') || h.includes('prénom') || h.includes('prenom'));
     const lastNameIdx = headers.findIndex(h => h.includes('last name') || h.includes('nom'));
@@ -364,24 +394,29 @@ export default function App() {
     const positionIdx = headers.findIndex(h => h.includes('position') || h.includes('poste') || h.includes('rôle') || h.includes('role'));
     const emailIdx = headers.findIndex(h => h.includes('email') || h.includes('courriel') || h.includes('adresse e-mail'));
 
+    // S'assurer qu'au moins un champ d'identification est présent
+    if (firstNameIdx === -1 && lastNameIdx === -1) {
+      console.error("En-têtes Prénom/Nom manquantes:", headers);
+      return [];
+    }
+
     const list = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
 
-      const matches = line.match(/(".*?"|[^",;\s]+)(?=\s*[,;]|\s*$)/g) || line.split(/,|;/);
-      const values = matches.map(v => v.replace(/^"|"$/g, '').trim());
+      const values = splitCSVLine(line, separator);
+      if (values.length === 0) continue;
 
-      if (values.length < 2) continue;
-
-      const fName = firstNameIdx !== -1 ? values[firstNameIdx] : '';
-      const lName = lastNameIdx !== -1 ? values[lastNameIdx] : '';
-      const comp = companyIdx !== -1 ? values[companyIdx] : '';
-      const pos = positionIdx !== -1 ? values[positionIdx] : '';
-      const mail = emailIdx !== -1 ? values[emailIdx] : '';
+      const fName = firstNameIdx !== -1 && firstNameIdx < values.length ? values[firstNameIdx] : '';
+      const lName = lastNameIdx !== -1 && lastNameIdx < values.length ? values[lastNameIdx] : '';
+      const comp = companyIdx !== -1 && companyIdx < values.length ? values[companyIdx] : '';
+      const pos = positionIdx !== -1 && positionIdx < values.length ? values[positionIdx] : '';
+      const mail = emailIdx !== -1 && emailIdx < values.length ? values[emailIdx] : '';
 
       const fullName = `${fName} ${lName}`.trim();
-      if (fullName) {
+      // On ignore la ligne d'en-tête accidentelle et les lignes vides
+      if (fullName && fullName.toLowerCase() !== 'first name last name' && fullName.toLowerCase() !== 'prénom nom') {
         list.push({
           tempId: `li-${i}`,
           name: fullName,
@@ -506,7 +541,7 @@ export default function App() {
     return Object.entries(counts)
       .map(([label, value]) => ({ label, value }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, 5); // Garde le Top 5 pour un affichage propre
+      .slice(0, 5); 
   }, [contacts, distributionMetric]);
 
   // Métrique maximale pour calibrer la largeur des barres du graphique
@@ -605,7 +640,7 @@ export default function App() {
       {/* ZONE GRAPHIQUES ET ANALYSES */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Graphique 1 : Objectif Financier (Ajustable & Interactif) */}
+        {/* Graphique 1 : Objectif Financier */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-start mb-1">
@@ -617,18 +652,10 @@ export default function App() {
             <p className="text-xs text-slate-400">Ajustez votre objectif mensuel en temps réel.</p>
           </div>
 
-          {/* Jauge circulaire SVG */}
           <div className="flex flex-col items-center justify-center my-6">
             <div className="relative w-36 h-36">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                {/* Cercle arrière-plan */}
-                <circle 
-                  cx="50" cy="50" r="40" 
-                  className="stroke-slate-100" 
-                  strokeWidth="8" 
-                  fill="transparent" 
-                />
-                {/* Cercle de progression */}
+                <circle cx="50" cy="50" r="40" className="stroke-slate-100" strokeWidth="8" fill="transparent" />
                 <circle 
                   cx="50" cy="50" r="40" 
                   stroke={goalPercentage >= 100 ? '#dde5d1' : '#05386b'} 
@@ -640,7 +667,6 @@ export default function App() {
                   className="transition-all duration-500 ease-out"
                 />
               </svg>
-              {/* Contenu textuel de la jauge */}
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                 <span className="text-2xl font-extrabold text-[#05386b]">{goalPercentage}%</span>
                 <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Atteint</span>
@@ -652,7 +678,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Contrôle Ajustable (Slider) */}
           <div className="space-y-2 border-t border-slate-50 pt-4">
             <div className="flex justify-between text-xs font-semibold">
               <span className="text-slate-500">Objectif mensuel :</span>
@@ -675,7 +700,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Graphique 2 : Distribution interactive (Régions ou Type de besoin) */}
+        {/* Graphique 2 : Distribution interactive */}
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 lg:col-span-2 flex flex-col justify-between">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-4">
             <div>
@@ -686,7 +711,6 @@ export default function App() {
               <p className="text-xs text-slate-400">Top 5 de la répartition de vos contacts.</p>
             </div>
             
-            {/* Toggles dynamiques */}
             <div className="flex bg-slate-100 p-0.5 rounded-lg text-xs font-bold shrink-0 self-start">
               <button 
                 onClick={() => setDistributionMetric('region')}
@@ -703,7 +727,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Liste des barres de progression */}
           <div className="space-y-4 flex-1 flex flex-col justify-center">
             {distributionData.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-sm">
@@ -753,7 +776,6 @@ export default function App() {
                 </div>
                 <div className="flex-1 bg-slate-50 rounded-lg p-2 flex items-center justify-between border border-slate-100 hover:border-slate-200 transition-colors">
                   <div className="flex items-center space-x-2 w-full">
-                    {/* Barre de largeur proportionnelle */}
                     <div className={`h-4 ${step.color} rounded`} style={{ width: `${Math.max(10, step.pct)}%` }}></div>
                     <span className="text-xs font-bold text-slate-700">{step.count}</span>
                   </div>
@@ -799,7 +821,6 @@ export default function App() {
   const renderContacts = () => (
     <div className="space-y-6 animate-in fade-in duration-300">
       
-      {/* En-tête de la section contacts */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Répertoire de Contacts</h2>
@@ -829,7 +850,6 @@ export default function App() {
         {/* Barre de Recherche et de Filtrage */}
         <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col md:flex-row gap-4">
           
-          {/* Recherche Textuelle */}
           <div className="relative flex-1">
             <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
@@ -1120,7 +1140,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* MENU DE NAVIGATION BASSE SUR MOBILE */}
+      {/* MENU MOBILE */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-2.5 z-50 shadow-lg">
         <button 
           onClick={() => setCurrentTab('dashboard')}
@@ -1190,8 +1210,6 @@ export default function App() {
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Entreprise / Organisation *</label>
                   <input required type="text" className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm" value={newContact.company} onChange={e => setNewContact({...newContact, company: e.target.value})} />
                 </div>
-                
-                {/* Choix de la Région française */}
                 <div className="space-y-1 col-span-2 sm:col-span-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Région géographique *</label>
                   <select className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm bg-white font-medium" value={newContact.region} onChange={e => setNewContact({...newContact, region: e.target.value})}>
@@ -1286,7 +1304,7 @@ export default function App() {
         </div>
       )}
 
-      {/* BOÎTE MODALE : CONFIRMATION DE SUPPRESSION DES DONNÉES (RÉINITIALISATION) */}
+      {/* BOÎTE MODALE : CONFIRMATION DE SUPPRESSION */}
       {isConfirmClearOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[10000] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-rose-100">
@@ -1294,7 +1312,6 @@ export default function App() {
               <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto border border-rose-100">
                 <Trash2 className="w-7 h-7" />
               </div>
-              
               <div className="space-y-2">
                 <h3 className="text-xl font-bold text-slate-800">Vider le CRM ?</h3>
                 <p className="text-sm text-slate-500 leading-relaxed">
@@ -1302,22 +1319,9 @@ export default function App() {
                 </p>
               </div>
             </div>
-
             <div className="px-6 py-4 bg-slate-50 flex flex-col sm:flex-row gap-2 justify-end border-t border-slate-100">
-              <button 
-                type="button" 
-                onClick={() => setIsConfirmClearOpen(false)} 
-                className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100/50 rounded-xl transition-all text-center"
-              >
-                Annuler
-              </button>
-              <button 
-                type="button" 
-                onClick={clearAllData} 
-                className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all shadow-sm text-center"
-              >
-                Oui, tout supprimer
-              </button>
+              <button type="button" onClick={() => setIsConfirmClearOpen(false)} className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100/50 rounded-xl transition-all text-center">Annuler</button>
+              <button type="button" onClick={clearAllData} className="w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all shadow-sm text-center">Oui, tout supprimer</button>
             </div>
           </div>
         </div>
