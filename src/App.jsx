@@ -358,13 +358,23 @@ export default function App() {
     const lines = cleanText.split(/\r?\n/);
     if (lines.length < 2) return [];
 
-    // 2. Détection dynamique du séparateur (virgule ou point-virgule)
-    const firstLine = lines[0];
-    const commaCount = (firstLine.match(/,/g) || []).length;
-    const semiCount = (firstLine.match(/;/g) || []).length;
+    // 2. Recherche dynamique de la ligne d'en-tête (LinkedIn insère des lignes de notes au début)
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
+      const currentLine = lines[i].toLowerCase();
+      if (currentLine.includes('first name') || currentLine.includes('prénom') || currentLine.includes('prenom') || currentLine.includes('last name')) {
+        headerIdx = i;
+        break;
+      }
+    }
+
+    // 3. Détection dynamique du séparateur (virgule ou point-virgule) sur la ligne d'en-tête trouvée
+    const headerLine = lines[headerIdx];
+    const commaCount = (headerLine.match(/,/g) || []).length;
+    const semiCount = (headerLine.match(/;/g) || []).length;
     const separator = semiCount > commaCount ? ';' : ',';
 
-    // 3. Découpeur de ligne CSV robuste qui gère les guillemets et préserve les espaces
+    // 4. Découpeur de ligne CSV robuste qui gère les guillemets et préserve les espaces
     const splitCSVLine = (line, sep) => {
       const result = [];
       let current = '';
@@ -381,12 +391,11 @@ export default function App() {
         }
       }
       result.push(current.trim());
-      // On retire les guillemets externes
       return result.map(v => v.replace(/^"|"$/g, '').trim());
     };
 
-    // Lecture des en-têtes
-    const headers = splitCSVLine(lines[0], separator).map(h => h.toLowerCase());
+    // Lecture des en-têtes réels
+    const headers = splitCSVLine(lines[headerIdx], separator).map(h => h.toLowerCase());
     
     const firstNameIdx = headers.findIndex(h => h.includes('first name') || h.includes('prénom') || h.includes('prenom'));
     const lastNameIdx = headers.findIndex(h => h.includes('last name') || h.includes('nom'));
@@ -401,7 +410,8 @@ export default function App() {
     }
 
     const list = [];
-    for (let i = 1; i < lines.length; i++) {
+    // On commence l'analyse juste après la ligne d'en-tête trouvée
+    for (let i = headerIdx + 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
 
@@ -415,7 +425,8 @@ export default function App() {
       const mail = emailIdx !== -1 && emailIdx < values.length ? values[emailIdx] : '';
 
       const fullName = `${fName} ${lName}`.trim();
-      // On ignore la ligne d'en-tête accidentelle et les lignes vides
+      
+      // Validation stricte du contact
       if (fullName && fullName.toLowerCase() !== 'first name last name' && fullName.toLowerCase() !== 'prénom nom') {
         list.push({
           tempId: `li-${i}`,
@@ -1289,7 +1300,7 @@ export default function App() {
               <div className="space-y-1">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Statut initial</label>
                 <select className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm bg-white" value={newMission.status} onChange={e => setNewMission({...newMission, status: e.target.value})}>
-                  {KANBAN_COLUMNS.map(col => (
+                  {KANKAN_COLUMNS.map(col => (
                     <option key={col.id} value={col.id}>{col.title}</option>
                   ))}
                 </select>
