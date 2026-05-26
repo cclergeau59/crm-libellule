@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, KanbanSquare, Search, Plus, X, Building2, 
   Phone, Mail, Briefcase, TrendingUp, Award, Clock, ChevronRight, 
   MoreVertical, Target, LogIn, LogOut, CheckCircle2, AlertCircle, FileText, Trash2,
-  Linkedin, Download, AlertTriangle, Check, MapPin, Sliders, BarChart3, HelpCircle
+  Download, AlertTriangle, Check, MapPin, Sliders, BarChart3, HelpCircle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
@@ -29,6 +29,15 @@ try {
 } catch (error) {
   console.error("Firebase initialization failed:", error);
 }
+
+// --- ICÔNE LINKEDIN SVGAUTONOME (Résout le problème d'importation lucide-react) ---
+const Linkedin = ({ className = "w-4 h-4" }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+    <rect x="2" y="9" width="4" height="12" />
+    <circle cx="4" cy="4" r="2" />
+  </svg>
+);
 
 // --- LISTE DES RÉGIONS DE FRANCE ---
 const FRENCH_REGIONS = [
@@ -381,7 +390,7 @@ export default function App() {
           email: mail || '',
           phone: '',
           needType: 'Coaching',
-          region: 'Île-de-France', // Région par défaut pour l'import, modifiable après
+          region: 'Île-de-France',
           selected: true
         });
       }
