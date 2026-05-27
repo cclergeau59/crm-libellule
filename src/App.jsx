@@ -3,14 +3,14 @@ import {
   LayoutDashboard, Users, KanbanSquare, Search, Plus, X, Building2, 
   Phone, Mail, Briefcase, TrendingUp, Award, Clock, ChevronRight, 
   MoreVertical, Target, LogIn, LogOut, CheckCircle2, AlertCircle, FileText, Trash2,
-  Download, AlertTriangle, Check, MapPin, Sliders, BarChart3, HelpCircle
+  Download, AlertTriangle, Check, MapPin, Sliders, BarChart3, HelpCircle, Edit, MessageSquare
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
 
 // --- CONFIGURATION FIREBASE DU PROJET ---
-const firebaseConfig = {
+const defaultFirebaseConfig = {
   apiKey: "AIzaSyArBrqqePsBEPY1udEW5j2YQLd3taQi93U",
   authDomain: "libellule-crm.firebaseapp.com",
   projectId: "libellule-crm",
@@ -19,13 +19,14 @@ const firebaseConfig = {
   appId: "1:146063665167:web:feeb984d3cb903f7a0db7a"
 };
 
-// --- INITIALISATION DE FIREBASE ---
+// --- INITIALISATION DE FIREBASE (Adaptée pour l'environnement) ---
 let app, auth, db, appId;
 try {
+  const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : defaultFirebaseConfig;
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
-  appId = "libellule-crm";
+  appId = typeof __app_id !== 'undefined' ? __app_id : "libellule-crm";
 } catch (error) {
   console.error("Firebase initialization failed:", error);
 }
@@ -57,13 +58,22 @@ const FRENCH_REGIONS = [
   "Autre / International"
 ];
 
+const NEED_TYPES = [
+  "Coaching",
+  "Formation",
+  "Transformation Orga",
+  "Cadrage Stratégique",
+  "Séminaire",
+  "Autre"
+];
+
 // --- DONNÉES DE DÉMONSTRATION INITIALES ---
 const initialContacts = [
-  { id: 1, name: 'Sophie Laurent', role: 'DRH', company: 'TechSolutions France', email: 's.laurent@techsolutions.fr', phone: '06 12 34 56 78', needType: 'Coaching', region: 'Île-de-France' },
-  { id: 2, name: 'Marc Dupont', role: 'CEO', company: 'Innovatech', email: 'm.dupont@innovatech.com', phone: '06 98 76 54 32', needType: 'Transformation Orga', region: 'Auvergne-Rhône-Alpes' },
-  { id: 3, name: 'Julie Martin', role: 'Directrice Opérations', company: 'GreenEnergy', email: 'j.martin@greenenergy.fr', phone: '07 11 22 33 44', needType: 'Formation', region: "Provence-Alpes-Côte d'Azur" },
-  { id: 4, name: 'Thomas Bernard', role: 'Fondateur', company: 'StartUp Studio', email: 'thomas@startup-studio.io', phone: '06 55 44 33 22', needType: 'Cadrage Stratégique', region: 'Nouvelle-Aquitaine' },
-  { id: 5, name: 'Élodie Dubois', role: 'Responsable Formation', company: 'Grand Retail', email: 'e.dubois@grandretail.com', phone: '07 88 99 00 11', needType: 'Formation', region: 'Hauts-de-France' },
+  { id: 1, name: 'Sophie Laurent', role: 'DRH', company: 'TechSolutions France', email: 's.laurent@techsolutions.fr', phone: '06 12 34 56 78', needType: 'Coaching', region: 'Île-de-France', comments: 'Priorité haute. Souhaite démarrer le coaching pour ses managers le mois prochain.' },
+  { id: 2, name: 'Marc Dupont', role: 'CEO', company: 'Innovatech', email: 'm.dupont@innovatech.com', phone: '06 98 76 54 32', needType: 'Transformation Orga', region: 'Auvergne-Rhône-Alpes', comments: 'À relancer fin d\'année suite à leur levée de fonds.' },
+  { id: 3, name: 'Julie Martin', role: 'Directrice Opérations', company: 'GreenEnergy', email: 'j.martin@greenenergy.fr', phone: '07 11 22 33 44', needType: 'Formation', region: "Provence-Alpes-Côte d'Azur", comments: '' },
+  { id: 4, name: 'Thomas Bernard', role: 'Fondateur', company: 'StartUp Studio', email: 'thomas@startup-studio.io', phone: '06 55 44 33 22', needType: 'Cadrage Stratégique', region: 'Nouvelle-Aquitaine', comments: 'Rencontré lors du salon Tech Innovate.' },
+  { id: 5, name: 'Élodie Dubois', role: 'Responsable Formation', company: 'Grand Retail', email: 'e.dubois@grandretail.com', phone: '07 88 99 00 11', needType: 'Formation', region: 'Hauts-de-France', comments: '' },
 ];
 
 const initialPipeline = [
@@ -93,11 +103,17 @@ export default function App() {
   // États pour les formulaires, filtres et confirmations
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRegion, setFilterRegion] = useState('');
+  const [filterNeedType, setFilterNeedType] = useState('');
   const [isAddContactOpen, setIsAddContactOpen] = useState(false);
+  const [editingContactId, setEditingContactId] = useState(null);
   const [isAddMissionOpen, setIsAddMissionOpen] = useState(false);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   
-  const [newContact, setNewContact] = useState({ name: '', role: '', company: '', email: '', phone: '', needType: '', region: 'Île-de-France' });
+  // Nouveaux états pour gérer l'ouverture des menus cliquables
+  const [openContactMenuId, setOpenContactMenuId] = useState(null);
+  const [openPipelineMenuId, setOpenPipelineMenuId] = useState(null);
+  
+  const [newContact, setNewContact] = useState({ name: '', role: '', company: '', email: '', phone: '', needType: '', region: 'Île-de-France', comments: '' });
   const [newMission, setNewMission] = useState({ company: '', type: '', value: '', status: 'contact', contactName: '' });
 
   // États pour les graphiques interactifs
@@ -124,7 +140,7 @@ export default function App() {
       const link = document.createElement('link');
       link.id = 'quicksand-font';
       link.rel = 'stylesheet';
-      link.href = '[https://fonts.googleapis.com/css2?family=Quicksand:wght=400;500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Quicksand:wght=400;500;600;700&display=swap)';
+      link.href = 'https://fonts.googleapis.com/css2?family=Quicksand:wght=400;500;600;700&display=swap';
       document.head.appendChild(link);
     }
   }, []);
@@ -266,26 +282,75 @@ export default function App() {
     setIsConfirmClearOpen(false);
   };
 
-  const handleAddContact = async (e) => {
+  const openCreateContactModal = () => {
+    setEditingContactId(null);
+    setNewContact({ name: '', role: '', company: '', email: '', phone: '', needType: '', region: 'Île-de-France', comments: '' });
+    setIsAddContactOpen(true);
+  };
+
+  const openEditContactModal = (contact) => {
+    setEditingContactId(contact.id);
+    setNewContact({ ...contact });
+    setIsAddContactOpen(true);
+  };
+
+  const handleSaveContact = async (e) => {
     e.preventDefault();
     if (!newContact.name || !newContact.company) return;
 
-    if (user && db) {
-      try {
-        const contactsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'contacts');
-        await addDoc(contactsRef, { ...newContact, createdAt: new Date().toISOString() });
-        showNotification("Contact ajouté avec succès !");
-      } catch (error) {
-        console.error("Erreur lors de l'ajout du contact:", error);
-        showNotification("Erreur lors de l'ajout du contact.", "error");
+    if (editingContactId) {
+      // MODIFICATION
+      if (user && db) {
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'contacts', editingContactId);
+          await updateDoc(docRef, { ...newContact });
+          showNotification("Contact modifié avec succès !");
+        } catch (error) {
+          console.error("Erreur lors de la modification:", error);
+          showNotification("Erreur lors de la modification du contact.", "error");
+        }
+      } else {
+        setContacts(contacts.map(c => c.id === editingContactId ? { ...newContact, id: editingContactId } : c));
+        showNotification("Contact modifié localement.");
       }
     } else {
-      setContacts([{ ...newContact, id: Date.now() }, ...contacts]);
-      showNotification("Contact ajouté localement.");
+      // CRÉATION
+      if (user && db) {
+        try {
+          const contactsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'contacts');
+          await addDoc(contactsRef, { ...newContact, createdAt: new Date().toISOString() });
+          showNotification("Contact ajouté avec succès !");
+        } catch (error) {
+          console.error("Erreur lors de l'ajout du contact:", error);
+          showNotification("Erreur lors de l'ajout du contact.", "error");
+        }
+      } else {
+        setContacts([{ ...newContact, id: Date.now() }, ...contacts]);
+        showNotification("Contact ajouté localement.");
+      }
     }
     
     setIsAddContactOpen(false);
-    setNewContact({ name: '', role: '', company: '', email: '', phone: '', needType: '', region: 'Île-de-France' });
+    setEditingContactId(null);
+    setNewContact({ name: '', role: '', company: '', email: '', phone: '', needType: '', region: 'Île-de-France', comments: '' });
+  };
+
+  const handleDeleteContact = async (contactId) => {
+    if (window.confirm("Êtes-vous sûr de vouloir supprimer ce contact ?")) {
+      if (user && db) {
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'contacts', contactId);
+          await deleteDoc(docRef);
+          showNotification("Contact supprimé.");
+        } catch (error) {
+          console.error("Erreur lors de la suppression:", error);
+          showNotification("Erreur lors de la suppression.", "error");
+        }
+      } else {
+        setContacts(contacts.filter(c => c.id !== contactId));
+        showNotification("Contact supprimé localement.");
+      }
+    }
   };
 
   const handleAddMission = async (e) => {
@@ -507,17 +572,19 @@ export default function App() {
 
   // --- CALCULS ET STATISTIQUES AVANCÉES ---
   const filteredContacts = useMemo(() => {
-    return contacts.filter(c => {
-      const matchesSearch = 
-        (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.company || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (c.needType || '').toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchesRegion = filterRegion === '' || c.region === filterRegion;
+    // Séparation des mots clés pour une recherche multi-termes ("Marc Inno" trouvera Marc Dupont chez Innovatech)
+    const searchTerms = searchQuery.toLowerCase().split(' ').filter(t => t);
 
-      return matchesSearch && matchesRegion;
+    return contacts.filter(c => {
+      const searchableText = `${c.name || ''} ${c.company || ''} ${c.role || ''} ${c.email || ''} ${c.needType || ''} ${c.comments || ''}`.toLowerCase();
+      
+      const matchesSearch = searchTerms.length === 0 || searchTerms.every(term => searchableText.includes(term));
+      const matchesRegion = filterRegion === '' || c.region === filterRegion;
+      const matchesNeedType = filterNeedType === '' || c.needType === filterNeedType;
+
+      return matchesSearch && matchesRegion && matchesNeedType;
     });
-  }, [contacts, searchQuery, filterRegion]);
+  }, [contacts, searchQuery, filterRegion, filterNeedType]);
 
   // Valeurs financières
   const wonMissions = useMemo(() => pipeline.filter(p => p.status === 'won'), [pipeline]);
@@ -847,7 +914,7 @@ export default function App() {
           </button>
           
           <button 
-            onClick={() => setIsAddContactOpen(true)}
+            onClick={openCreateContactModal}
             className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 bg-[#05386b] hover:bg-[#05386b]/90 text-white px-5 py-2.5 rounded-xl transition-all shadow-sm font-semibold text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -856,24 +923,24 @@ export default function App() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col">
         
         {/* Barre de Recherche et de Filtrage */}
-        <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col md:flex-row gap-4">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col md:flex-row gap-4 rounded-t-2xl">
           
           <div className="relative flex-1">
             <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
               type="text" 
-              placeholder="Rechercher par nom, entreprise, besoin..." 
+              placeholder="Rechercher (nom, entreprise, email, rôle)..." 
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 focus:border-[#05386b] focus:ring-2 focus:ring-[#05386b]/10 rounded-xl transition-all text-sm outline-none shadow-sm"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
-          {/* Filtrage par Région de France */}
-          <div className="relative w-full md:w-64">
+          {/* Filtrage par Région */}
+          <div className="relative w-full md:w-56 shrink-0">
             <MapPin className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-[#05386b]" />
             <select
               value={filterRegion}
@@ -887,10 +954,26 @@ export default function App() {
             </select>
           </div>
 
+          {/* Filtrage par Besoin */}
+          <div className="relative w-full md:w-56 shrink-0">
+            <Briefcase className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-[#05386b]" />
+            <select
+              value={filterNeedType}
+              onChange={(e) => setFilterNeedType(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 focus:border-[#05386b] focus:ring-2 focus:ring-[#05386b]/10 rounded-xl transition-all text-sm outline-none shadow-sm appearance-none font-semibold text-slate-700"
+            >
+              <option value="">Tous les besoins</option>
+              {NEED_TYPES.map((need, idx) => (
+                <option key={idx} value={need}>{need}</option>
+              ))}
+              <option value="LinkedIn Import">LinkedIn Import</option>
+            </select>
+          </div>
+
         </div>
         
         {/* Tableau de contacts */}
-        <div className="overflow-x-auto">
+        <div className="w-full overflow-x-auto lg:overflow-visible min-h-[300px] rounded-b-2xl pb-6">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
@@ -907,14 +990,30 @@ export default function App() {
                 <tr key={contact.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="p-4">
                     <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-full bg-[#dde5d1]/50 text-[#05386b] flex items-center justify-center font-bold text-sm border border-[#dde5d1]">
+                      <div className="w-9 h-9 rounded-full bg-[#dde5d1]/50 text-[#05386b] flex items-center justify-center font-bold text-sm border border-[#dde5d1] shrink-0">
                         {contact.name ? contact.name.split(' ').map(n => n[0]).join('') : 'C'}
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5">
                           <p className="font-semibold text-slate-800 text-sm">{contact.name}</p>
+                          
+                          {contact.comments && (
+                            <div className="relative group/tooltip flex items-center ml-1">
+                              <MessageSquare className="w-4 h-4 text-[#96adc1] cursor-help group-hover/tooltip:text-[#05386b] transition-colors" />
+                              
+                              <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 w-72 p-4 bg-slate-800 text-white text-xs rounded-xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-50 shadow-xl pointer-events-none">
+                                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-800 transform rotate-45 rounded-sm"></div>
+                                <p className="font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5" /> 
+                                  Commentaires & Notes
+                                </p>
+                                <p className="whitespace-pre-wrap leading-relaxed text-slate-100">{contact.comments}</p>
+                              </div>
+                            </div>
+                          )}
+
                           {contact.needType === 'LinkedIn Import' && (
-                            <span className="p-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100" title="Importé de LinkedIn">
+                            <span className="p-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 ml-1 shrink-0" title="Importé de LinkedIn">
                               <Linkedin className="w-2.5 h-2.5" />
                             </span>
                           )}
@@ -955,9 +1054,35 @@ export default function App() {
                     </span>
                   </td>
                   <td className="p-4 text-right">
-                    <button className="text-slate-400 hover:text-[#05386b] transition-colors opacity-0 group-hover:opacity-100">
-                      <MoreVertical className="w-5 h-5" />
-                    </button>
+                    <div className="relative inline-block text-left">
+                      <button 
+                        onClick={() => setOpenContactMenuId(openContactMenuId === contact.id ? null : contact.id)}
+                        className="text-slate-400 hover:text-[#05386b] p-1 rounded hover:bg-slate-50 transition-colors opacity-0 group-hover:opacity-100 relative z-10"
+                      >
+                        <MoreVertical className="w-5 h-5" />
+                      </button>
+                      
+                      {openContactMenuId === contact.id && (
+                        <>
+                          {/* Zone invisible pour fermer le menu en cliquant à côté */}
+                          <div className="fixed inset-0 z-30" onClick={() => setOpenContactMenuId(null)}></div>
+                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-100 shadow-lg rounded-xl py-1.5 w-32 z-40">
+                            <button 
+                              onClick={() => { openEditContactModal(contact); setOpenContactMenuId(null); }}
+                              className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 flex items-center gap-2"
+                            >
+                              <Edit className="w-3.5 h-3.5" /> Modifier
+                            </button>
+                            <button 
+                              onClick={() => { handleDeleteContact(contact.id); setOpenContactMenuId(null); }}
+                              className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-slate-50 text-rose-600 flex items-center gap-2"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Supprimer
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1012,22 +1137,31 @@ export default function App() {
                           {item.company}
                         </span>
                         
-                        <div className="relative group/menu">
-                          <button className="text-slate-400 hover:text-slate-600 p-0.5 rounded hover:bg-slate-50">
+                        <div className="relative">
+                          <button 
+                            onClick={() => setOpenPipelineMenuId(openPipelineMenuId === item.id ? null : item.id)}
+                            className="text-slate-400 hover:text-slate-600 p-0.5 rounded hover:bg-slate-50 relative z-10"
+                          >
                             <MoreVertical className="w-4 h-4" />
                           </button>
-                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-100 shadow-lg rounded-xl py-1.5 w-44 hidden group-hover/menu:block z-10">
-                            <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Déplacer vers :</div>
-                            {KANBAN_COLUMNS.filter(c => c.id !== item.status).map(c => (
-                              <button 
-                                key={c.id} 
-                                onClick={() => movePipelineItem(item.id, c.id)}
-                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-700"
-                              >
-                                {c.title}
-                              </button>
-                            ))}
-                          </div>
+                          
+                          {openPipelineMenuId === item.id && (
+                            <>
+                              <div className="fixed inset-0 z-30" onClick={() => setOpenPipelineMenuId(null)}></div>
+                              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-100 shadow-lg rounded-xl py-1.5 w-44 z-40">
+                                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Déplacer vers :</div>
+                                {KANBAN_COLUMNS.filter(c => c.id !== item.status).map(c => (
+                                  <button 
+                                    key={c.id} 
+                                    onClick={() => { movePipelineItem(item.id, c.id); setOpenPipelineMenuId(null); }}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-700"
+                                  >
+                                    {c.title}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -1198,13 +1332,15 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="text-lg font-bold text-slate-800">Ajouter un nouveau contact</h3>
-              <button onClick={() => setIsAddContactOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingContactId ? "Modifier le contact" : "Ajouter un nouveau contact"}
+              </h3>
+              <button onClick={() => { setIsAddContactOpen(false); setEditingContactId(null); }} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <form onSubmit={handleAddContact} className="p-6 space-y-4">
+            <form onSubmit={handleSaveContact} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1 col-span-2 sm:col-span-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Nom complet *</label>
@@ -1243,21 +1379,31 @@ export default function App() {
               </div>
 
               <div className="space-y-1">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Commentaires & Notes</label>
+                <textarea 
+                  rows="2" 
+                  placeholder="Informations supplémentaires, contexte, disponibilités..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm resize-none" 
+                  value={newContact.comments || ''} 
+                  onChange={e => setNewContact({...newContact, comments: e.target.value})}
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Type de besoin principal</label>
                 <select className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm bg-white" value={newContact.needType} onChange={e => setNewContact({...newContact, needType: e.target.value})}>
                   <option value="">Sélectionner un besoin...</option>
-                  <option value="Coaching">Coaching</option>
-                  <option value="Formation">Formation</option>
-                  <option value="Transformation Orga">Transformation Orga</option>
-                  <option value="Cadrage Stratégique">Cadrage Stratégique</option>
-                  <option value="Séminaire">Séminaire</option>
-                  <option value="Autre">Autre</option>
+                  {NEED_TYPES.map((need, idx) => (
+                    <option key={idx} value={need}>{need}</option>
+                  ))}
                 </select>
               </div>
 
               <div className="pt-4 flex justify-end space-x-3 border-t border-slate-100 mt-6">
-                <button type="button" onClick={() => setIsAddContactOpen(false)} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all">Annuler</button>
-                <button type="submit" className="px-5 py-2 text-sm font-semibold text-white bg-[#05386b] hover:bg-[#05386b]/95 rounded-xl transition-all shadow-sm">Créer le contact</button>
+                <button type="button" onClick={() => { setIsAddContactOpen(false); setEditingContactId(null); }} className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all">Annuler</button>
+                <button type="submit" className="px-5 py-2 text-sm font-semibold text-white bg-[#05386b] hover:bg-[#05386b]/95 rounded-xl transition-all shadow-sm">
+                  {editingContactId ? "Enregistrer" : "Créer le contact"}
+                </button>
               </div>
             </form>
           </div>
@@ -1300,7 +1446,7 @@ export default function App() {
               <div className="space-y-1">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Statut initial</label>
                 <select className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#96adc1]/40 focus:border-[#05386b] outline-none transition-all text-sm bg-white" value={newMission.status} onChange={e => setNewMission({...newMission, status: e.target.value})}>
-                  {KANKAN_COLUMNS.map(col => (
+                  {KANBAN_COLUMNS.map(col => (
                     <option key={col.id} value={col.id}>{col.title}</option>
                   ))}
                 </select>
